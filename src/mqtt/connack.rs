@@ -1,4 +1,4 @@
-use crate::mqtt::{packet, protocol, Error};
+use crate::mqtt::{Error, FixedHeader};
 use std::slice::Iter;
 
 use std::fmt;
@@ -32,7 +32,7 @@ impl fmt::Display for ConnectReturnCode {
 
 #[derive(Debug, PartialEq)]
 pub struct ConnackPacket {
-    pub fixed_header: packet::FixedHeader,
+    pub fixed_header: FixedHeader,
     pub session_present: bool,
     pub return_code: ConnectReturnCode,
 }
@@ -51,7 +51,7 @@ impl fmt::Display for ConnackPacket {
 
 impl ConnackPacket {
     pub fn from_stream(mut stream: Iter<u8>) -> Result<ConnackPacket, Error> {
-        let fixed_header = packet::FixedHeader::from_stream(&mut stream)?;
+        let fixed_header = FixedHeader::from_stream(&mut stream)?;
         if let Some(session_present_u8) = stream.next() {
             let session_present = *session_present_u8 != 0;
             if let Some(rc) = stream.next() {
@@ -81,6 +81,7 @@ impl ConnackPacket {
 #[cfg(test)]
 mod connack_tests {
     use super::*;
+    use crate::mqtt::protocol;
     use bytes::{BufMut, BytesMut};
 
     #[test]
@@ -95,7 +96,7 @@ mod connack_tests {
         assert_eq!(
             connack,
             ConnackPacket {
-                fixed_header: packet::FixedHeader::new(0x20, 2),
+                fixed_header: FixedHeader::new(0x20, 2),
                 session_present: false,
                 return_code: ConnectReturnCode::Success
             }
@@ -114,7 +115,7 @@ mod connack_tests {
         assert_eq!(
             connack,
             ConnackPacket {
-                fixed_header: packet::FixedHeader::new(0x20, 2),
+                fixed_header: FixedHeader::new(0x20, 2),
                 session_present: true,
                 return_code: ConnectReturnCode::Success
             }
@@ -133,7 +134,7 @@ mod connack_tests {
         assert_eq!(
             connack,
             ConnackPacket {
-                fixed_header: packet::FixedHeader::new(0x20, 2),
+                fixed_header: FixedHeader::new(0x20, 2),
                 session_present: true,
                 return_code: ConnectReturnCode::RefusedProtocolVersion
             }

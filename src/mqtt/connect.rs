@@ -50,7 +50,7 @@
 /// | Byte N+M+K |                                                  |
 /// |------------|--------------------------------------------------|
 ///
-use crate::mqtt::{packet, protocol, Error};
+use crate::mqtt::{protocol, Error, FixedHeader};
 use bytes::{BufMut, BytesMut};
 use std::fmt;
 
@@ -243,7 +243,7 @@ impl ConnectPayload {
 
 #[derive(Debug, PartialEq)]
 pub struct ConnectPacket {
-    pub fixed_header: packet::FixedHeader,
+    pub fixed_header: FixedHeader,
     pub variable_header: ConnectVariableHeader,
     pub payload: ConnectPayload,
 }
@@ -252,7 +252,7 @@ impl ConnectPacket {
     pub fn new(client_id: String, clean_session: bool) -> Self {
         let len = 10 + 2 + client_id.len();
         Self {
-            fixed_header: packet::FixedHeader::new(0x10, len as u32),
+            fixed_header: FixedHeader::new(0x10, len as u32),
             variable_header: ConnectVariableHeader::new(clean_session, 60),
             payload: ConnectPayload::new(client_id),
         }
@@ -278,7 +278,7 @@ mod connect_tests {
         assert_eq!(
             connect,
             ConnectPacket {
-                fixed_header: packet::FixedHeader::new(0x10, 19),
+                fixed_header: FixedHeader::new(0x10, 19),
                 variable_header: ConnectVariableHeader::new(false, 60),
                 payload: ConnectPayload::new("test-id".into())
             }
