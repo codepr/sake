@@ -50,9 +50,12 @@
 /// | Byte N+M+K |                                                  |
 /// |------------|--------------------------------------------------|
 ///
-use crate::mqtt::{protocol, Error, FixedHeader};
-use bytes::{BufMut, BytesMut};
+use crate::mqtt::protocol;
+use byteorder::{NetworkEndian, WriteBytesExt};
 use std::fmt;
+use std::io::{self, Write};
+
+const MQTT_V4: u8 = 0x04;
 
 #[derive(Debug, PartialEq)]
 struct ConnectFlags {
@@ -91,19 +94,7 @@ impl ConnectFlags {
         }
     }
 
-    pub fn will(&self) -> bool {
-        self.will
-    }
-
-    pub fn username(&self) -> bool {
-        self.username
-    }
-
-    pub fn password(&self) -> bool {
-        self.password
-    }
-
-    pub fn write(&self, buffer: &mut BytesMut) -> Result<usize, Error> {
+    pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
         let mut connect_flags = 0;
         if self.clean_session {
             connect_flags |= 0x02;
@@ -117,21 +108,9 @@ impl ConnectFlags {
         if self.password {
             connect_flags |= 0x40;
         }
-        buffer.put_u8(connect_flags);
-        Ok(1)
+        buf.write_u8(connect_flags)?;
+        Ok(())
     }
-
-    // pub fn from_u8(byte: u8) -> ConnectFlags {
-    //     let bits: Vec<bool> = (0..8).map(|i| byte & (u8::pow(2, i)) != 0).collect();
-    //     ConnectFlags {
-    //         clean_session: bits[1],
-    //         will: bits[2],
-    //         will_qos: bits[3..5].iter().fold(0, |acc, &b| acc * 2 + b as u8),
-    //         will_retain: bits[5],
-    //         password: bits[6],
-    //         username: bits[7],
-    //     }
-    // }
 }
 
 #[derive(Debug, PartialEq)]
@@ -153,30 +132,12 @@ impl ConnectVariableHeader {
             keepalive,
         }
     }
-    pub fn will(&self) -> bool {
-        self.flags.will()
-    }
 
-    pub fn username(&self) -> bool {
-        self.flags.username()
+    pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
+        self.flags.write(buf)?;
+        buf.write_u16::<NetworkEndian>(self.keepalive)?;
+        Ok(())
     }
-
-    pub fn password(&self) -> bool {
-        self.flags.password()
-    }
-
-    pub fn write(&self, buffer: &mut BytesMut) -> Result<usize, Error> {
-        let flags_size = self.flags.write(buffer)?;
-        buffer.put_u16(self.keepalive);
-        Ok(flags_size + 2)
-    }
-
-    // pub fn from_binary(buf: &mut BytesMut) -> SerdeResult<ConnectVariableHeader> {
-    //     Ok(ConnectVariableHeader {
-    //         flags: ConnectFlags::from_u8(buf.read_u8()?),
-    //         keepalive: buf.read_u16()?,
-    //     })
-    // }
 }
 
 #[derive(Debug, PartialEq)]
@@ -210,59 +171,49 @@ impl ConnectPayload {
         }
     }
 
-    pub fn write(&self, buffer: &mut BytesMut) -> Result<usize, Error> {
-        let mut len = 0;
+    pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
         if let Some(client_id) = &self.client_id {
-            protocol::write_string(buffer, client_id);
-            len += client_id.len();
+            protocol::write_string(buf, client_id)?;
         }
 
         if let Some(will_topic) = &self.will_topic {
-            protocol::write_string(buffer, will_topic);
-            len += will_topic.len();
+            protocol::write_string(buf, will_topic)?;
         }
-
         if let Some(will_message) = &self.will_message {
-            protocol::write_string(buffer, will_message);
-            len += will_message.len();
+            protocol::write_string(buf, will_message)?;
         }
 
         if let Some(username) = &self.will_message {
-            protocol::write_string(buffer, username);
-            len += username.len();
+            protocol::write_string(buf, username)?;
         }
 
         if let Some(password) = &self.will_message {
-            protocol::write_string(buffer, password);
-            len += password.len();
+            protocol::write_string(buf, password)?;
         }
-
-        Ok(len)
+        Ok(())
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ConnectPacket {
-    pub fixed_header: FixedHeader,
     pub variable_header: ConnectVariableHeader,
     pub payload: ConnectPayload,
 }
 
 impl ConnectPacket {
     pub fn new(client_id: String, clean_session: bool) -> Self {
-        let len = 10 + 2 + client_id.len();
         Self {
-            fixed_header: FixedHeader::new(0x10, len as u32),
             variable_header: ConnectVariableHeader::new(clean_session, 60),
             payload: ConnectPayload::new(client_id),
         }
     }
 
-    pub fn write(&self, buffer: &mut BytesMut) -> Result<usize, Error> {
-        self.fixed_header.write(buffer)?;
-        self.variable_header.write(buffer)?;
-        self.payload.write(buffer)?;
-        Ok(1)
+    pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
+        protocol::write_string(buf, "MQTT")?;
+        buf.write_u8(MQTT_V4)?;
+        self.variable_header.write(buf)?;
+        self.payload.write(buf)?;
+        Ok(())
     }
 }
 
@@ -270,15 +221,12 @@ impl ConnectPacket {
 mod connect_tests {
     use super::*;
 
-    use bytes::{Bytes, BytesMut};
-
     #[test]
     fn test_new() {
         let connect = ConnectPacket::new("test-id".into(), false);
         assert_eq!(
             connect,
             ConnectPacket {
-                fixed_header: FixedHeader::new(0x10, 19),
                 variable_header: ConnectVariableHeader::new(false, 60),
                 payload: ConnectPayload::new("test-id".into())
             }
@@ -288,11 +236,11 @@ mod connect_tests {
     #[test]
     fn test_write() {
         let connect = ConnectPacket::new("test-id".into(), false);
-        let mut buffer = BytesMut::new();
+        let mut buffer = vec![];
         connect.write(&mut buffer).unwrap();
         assert_eq!(
             buffer,
-            Bytes::from_static(b"\x10\x13\0\x04MQTT\x04\0\0<\0\x07test-id")
+            &[0, 4, 77, 81, 84, 84, 4, 0, 0, 60, 0, 7, 116, 101, 115, 116, 45, 105, 100]
         );
     }
 }
