@@ -1,13 +1,18 @@
 mod connack;
 mod connect;
 mod puback;
+mod pubcomp;
 mod publish;
+mod pubrec;
+mod pubrel;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use connack::ConnackPacket;
 use connect::ConnectPacket;
 use core::fmt::{self, Display, Formatter};
 use puback::PubackPacket;
+use pubcomp::PubcompPacket;
 use publish::PublishPacket;
+use pubrel::PubrelPacket;
 use std::error::Error;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
@@ -314,6 +319,12 @@ pub enum Request {
         topic: String,
         payload: Vec<u8>,
     },
+    Pubrel {
+        packet_id: u16,
+    },
+    Pubcomp {
+        packet_id: u16,
+    },
 }
 
 impl From<&Request> for u8 {
@@ -321,6 +332,8 @@ impl From<&Request> for u8 {
         match req {
             Request::Connect { .. } => 0x10,
             Request::Publish { qos, .. } => encode_qos(0x30, *qos),
+            Request::Pubrel { .. } => 0x62,
+            Request::Pubcomp { .. } => 0x70,
         }
     }
 }
@@ -361,6 +374,22 @@ impl Serialize for Request {
                     PublishPacket::new(*packet_id, topic.to_string(), payload.to_vec(), *qos);
                 publish.write(buf)?;
             }
+            Request::Pubrel { packet_id } => {
+                let len = 2;
+                protocol::write_remaining_length(buf, len)?;
+                let pubrel = PubrelPacket {
+                    packet_id: *packet_id,
+                };
+                pubrel.write(buf)?;
+            }
+            Request::Pubcomp { packet_id } => {
+                let len = 2;
+                protocol::write_remaining_length(buf, len)?;
+                let pubcomp = PubcompPacket {
+                    packet_id: *packet_id,
+                };
+                pubcomp.write(buf)?;
+            }
         }
         Ok(1)
     }
@@ -381,6 +410,12 @@ pub enum Response {
     Puback {
         packet_id: u16,
     },
+    Pubrec {
+        packet_id: u16,
+    },
+    Pubcomp {
+        packet_id: u16,
+    },
     Unknown,
 }
 
@@ -398,6 +433,8 @@ impl Display for Response {
                 ..
             } => write!(f, "PUBLISH {:?} {} {}", packet_id, qos, topic),
             Response::Puback { packet_id } => write!(f, "PUBACK {:?}", packet_id),
+            Response::Pubrec { packet_id } => write!(f, "PUBREC {:?}", packet_id),
+            Response::Pubcomp { packet_id } => write!(f, "PUBCOMP {:?}", packet_id),
             Response::Unknown => write!(f, "UNKNOWN"),
         }
     }
