@@ -12,6 +12,7 @@ use core::fmt::{self, Display, Formatter};
 use puback::PubackPacket;
 use pubcomp::PubcompPacket;
 use publish::PublishPacket;
+use pubrec::PubrecPacket;
 use pubrel::PubrelPacket;
 use std::error::Error;
 use std::io::{self, Read, Write};
@@ -156,9 +157,9 @@ pub enum PacketType {
     Connack,
     Publish,
     Puback,
-    // Pubrec,
-    // Pubrel,
-    // Pubcomp,
+    Pubrec,
+    Pubrel,
+    Pubcomp,
     // Subscribe,
     // Suback,
     // Unsubscribe,
@@ -176,6 +177,9 @@ impl PacketType {
             PacketType::Connack => 0x02,
             PacketType::Publish => 0x03,
             PacketType::Puback => 0x04,
+            PacketType::Pubrec => 0x05,
+            PacketType::Pubrel => 0x06,
+            PacketType::Pubcomp => 0x07,
             PacketType::Unknown => 0xFF,
         }
     }
@@ -188,6 +192,9 @@ impl From<u8> for PacketType {
             0x2 => PacketType::Connack,
             0x3 => PacketType::Publish,
             0x4 => PacketType::Puback,
+            0x5 => PacketType::Pubrec,
+            0x6 => PacketType::Pubrel,
+            0x7 => PacketType::Pubcomp,
             _ => PacketType::Unknown,
         }
     }
@@ -466,6 +473,18 @@ impl Deserialize for Response {
                 let puback = PubackPacket::from_bytes(buf)?;
                 Response::Puback {
                     packet_id: puback.packet_id,
+                }
+            }
+            PacketType::Pubrec => {
+                let pubrec = PubrecPacket::from_bytes(buf)?;
+                Response::Pubrec {
+                    packet_id: pubrec.packet_id,
+                }
+            }
+            PacketType::Pubcomp => {
+                let pubcomp = PubcompPacket::from_bytes(buf)?;
+                Response::Pubcomp {
+                    packet_id: pubcomp.packet_id,
                 }
             }
             _ => Response::Unknown,
