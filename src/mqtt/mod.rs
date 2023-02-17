@@ -166,7 +166,7 @@ pub enum PacketType {
     // Unsuback,
     // PingReq,
     // PingResp,
-    // Disconnect,
+    Disconnect,
     Unknown,
 }
 
@@ -180,6 +180,7 @@ impl PacketType {
             PacketType::Pubrec => 0x05,
             PacketType::Pubrel => 0x06,
             PacketType::Pubcomp => 0x07,
+            PacketType::Disconnect => 0x0e,
             PacketType::Unknown => 0xFF,
         }
     }
@@ -195,6 +196,7 @@ impl From<u8> for PacketType {
             0x5 => PacketType::Pubrec,
             0x6 => PacketType::Pubrel,
             0x7 => PacketType::Pubcomp,
+            0xE => PacketType::Disconnect,
             _ => PacketType::Unknown,
         }
     }
@@ -332,6 +334,7 @@ pub enum Request {
     Pubcomp {
         packet_id: u16,
     },
+    Disconnect,
 }
 
 impl From<&Request> for u8 {
@@ -341,6 +344,7 @@ impl From<&Request> for u8 {
             Request::Publish { qos, .. } => encode_qos(0x30, *qos),
             Request::Pubrel { .. } => 0x62,
             Request::Pubcomp { .. } => 0x70,
+            Request::Disconnect => 0xE0,
         }
     }
 }
@@ -396,6 +400,10 @@ impl Serialize for Request {
                     packet_id: *packet_id,
                 };
                 pubcomp.write(buf)?;
+            }
+            Request::Disconnect => {
+                let len = 0;
+                protocol::write_remaining_length(buf, len)?;
             }
         }
         Ok(1)
@@ -514,6 +522,11 @@ impl Protocol {
         let stream = TcpStream::connect(dest)?;
         eprintln!("Connecting to {}", dest);
         Self::with_stream(stream)
+    }
+
+    pub fn disconnect(&mut self) -> io::Result<()> {
+        let disconnect_request = Request::Disconnect;
+        self.send_message(&disconnect_request)
     }
 
     /// Serialize a message to the server and write it to the TcpStream
