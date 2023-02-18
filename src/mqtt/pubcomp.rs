@@ -15,8 +15,7 @@ impl fmt::Display for PubcompPacket {
 
 impl PubcompPacket {
     pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
-        buf.write_u16::<NetworkEndian>(self.packet_id)?;
-        Ok(())
+        buf.write_u16::<NetworkEndian>(self.packet_id)
     }
 
     pub fn from_bytes(bytes: &mut impl Read) -> io::Result<Self> {

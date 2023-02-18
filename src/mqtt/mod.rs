@@ -151,7 +151,7 @@ pub mod protocol {
 }
 
 #[repr(u8)]
-#[derive(PartialEq, PartialOrd, Debug)]
+#[derive(PartialEq, PartialOrd, Debug, Copy, Clone)]
 pub enum PacketType {
     Connect = 1,
     Connack,
@@ -170,9 +170,17 @@ pub enum PacketType {
     Unknown,
 }
 
-impl PacketType {
-    pub fn value(&self) -> u8 {
-        match *self {
+#[repr(u8)]
+pub enum AckType {
+    Puback(u16),
+    Pubrec(u16),
+    Pubrel(u16),
+    Pubcomp(u16),
+}
+
+impl From<&PacketType> for u8 {
+    fn from(orig: &PacketType) -> Self {
+        match orig {
             PacketType::Connect => 0x01,
             PacketType::Connack => 0x02,
             PacketType::Publish => 0x03,
@@ -295,7 +303,7 @@ impl FixedHeader {
     pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
         let len = self.remaining_length;
         // MSB for the MQTT type and LSB for the flags
-        let byte = (self.packet_type.value()) << 4 | (self.flags.to_byte() & 0x0F);
+        let byte = (self.packet_type as u8) << 4 | (self.flags.to_byte() & 0x0F);
         buf.write_u8(byte)?;
         protocol::write_remaining_length(buf, len as usize)?;
         Ok(())
@@ -328,6 +336,12 @@ pub enum Request {
         topic: String,
         payload: Vec<u8>,
     },
+    Puback {
+        packet_id: u16,
+    },
+    Pubrec {
+        packet_id: u16,
+    },
     Pubrel {
         packet_id: u16,
     },
@@ -342,6 +356,8 @@ impl From<&Request> for u8 {
         match req {
             Request::Connect { .. } => 0x10,
             Request::Publish { qos, .. } => encode_qos(0x30, *qos),
+            Request::Puback { .. } => 0x40,
+            Request::Pubrec { .. } => 0x50,
             Request::Pubrel { .. } => 0x62,
             Request::Pubcomp { .. } => 0x70,
             Request::Disconnect => 0xE0,
@@ -384,6 +400,22 @@ impl Serialize for Request {
                 let publish =
                     PublishPacket::new(*packet_id, topic.to_string(), payload.to_vec(), *qos);
                 publish.write(buf)?;
+            }
+            Request::Puback { packet_id } => {
+                let len = 2;
+                protocol::write_remaining_length(buf, len)?;
+                let puback = PubackPacket {
+                    packet_id: *packet_id,
+                };
+                puback.write(buf)?;
+            }
+            Request::Pubrec { packet_id } => {
+                let len = 2;
+                protocol::write_remaining_length(buf, len)?;
+                let pubrec = PubrecPacket {
+                    packet_id: *packet_id,
+                };
+                pubrec.write(buf)?;
             }
             Request::Pubrel { packet_id } => {
                 let len = 2;
@@ -428,6 +460,9 @@ pub enum Response {
     Pubrec {
         packet_id: u16,
     },
+    Pubrel {
+        packet_id: u16,
+    },
     Pubcomp {
         packet_id: u16,
     },
@@ -449,6 +484,7 @@ impl Display for Response {
             } => write!(f, "PUBLISH {:?} {} {}", packet_id, qos, topic),
             Response::Puback { packet_id } => write!(f, "PUBACK {:?}", packet_id),
             Response::Pubrec { packet_id } => write!(f, "PUBREC {:?}", packet_id),
+            Response::Pubrel { packet_id } => write!(f, "PUBREL {:?}", packet_id),
             Response::Pubcomp { packet_id } => write!(f, "PUBCOMP {:?}", packet_id),
             Response::Unknown => write!(f, "UNKNOWN"),
         }
@@ -489,6 +525,12 @@ impl Deserialize for Response {
                     packet_id: pubrec.packet_id,
                 }
             }
+            PacketType::Pubrel => {
+                let pubrel = PubrelPacket::from_bytes(buf)?;
+                Response::Pubrel {
+                    packet_id: pubrel.packet_id,
+                }
+            }
             PacketType::Pubcomp => {
                 let pubcomp = PubcompPacket::from_bytes(buf)?;
                 Response::Pubcomp {
@@ -527,6 +569,26 @@ impl Protocol {
     pub fn disconnect(&mut self) -> io::Result<()> {
         let disconnect_request = Request::Disconnect;
         self.send_message(&disconnect_request)
+    }
+
+    pub fn publish(&mut self, topic: &str, message: &[u8]) -> io::Result<()> {
+        let pub_req = Request::Publish {
+            packet_id: 1,
+            qos: 1,
+            topic: topic.to_string(),
+            payload: message.to_vec(),
+        };
+        self.send_message(&pub_req)
+    }
+
+    pub fn ack(&mut self, ack_type: AckType) -> io::Result<()> {
+        let ack_request = match ack_type {
+            AckType::Puback(pkt_id) => Request::Puback { packet_id: pkt_id },
+            AckType::Pubrec(pkt_id) => Request::Pubrec { packet_id: pkt_id },
+            AckType::Pubrel(pkt_id) => Request::Pubrel { packet_id: pkt_id },
+            AckType::Pubcomp(pkt_id) => Request::Pubcomp { packet_id: pkt_id },
+        };
+        self.send_message(&ack_request)
     }
 
     /// Serialize a message to the server and write it to the TcpStream

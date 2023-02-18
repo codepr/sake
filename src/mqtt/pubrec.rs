@@ -1,6 +1,6 @@
-use byteorder::{NetworkEndian, ReadBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::fmt;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 #[derive(Debug, PartialEq)]
 pub struct PubrecPacket {
@@ -14,6 +14,10 @@ impl fmt::Display for PubrecPacket {
 }
 
 impl PubrecPacket {
+    pub fn write(&self, buf: &mut impl Write) -> io::Result<()> {
+        buf.write_u16::<NetworkEndian>(self.packet_id)
+    }
+
     pub fn from_bytes(bytes: &mut impl Read) -> io::Result<Self> {
         let packet_id = bytes.read_u16::<NetworkEndian>()?;
         Ok(Self { packet_id })
