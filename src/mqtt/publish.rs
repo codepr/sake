@@ -3,6 +3,34 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::fmt;
 use std::io::{self, Read, Write};
 
+///
+/// MQTT Publish packet unpack function, as described in the MQTT v3.1.1 specs
+/// the packet has the following form:
+///
+/// |   Bit    |  7  |  6  |  5  |  4  |  3  |  2  |  1  |   0    |
+/// |----------|-----------------------|--------------------------|<-- Fixed Header
+/// | Byte 1   |      MQTT type 3      | dup |    QoS    | retain |
+/// |----------|--------------------------------------------------|
+/// | Byte 2   |                                                  |
+/// |   .      |               Remaining Length                   |
+/// |   .      |                                                  |
+/// | Byte 5   |                                                  |
+/// |----------|--------------------------------------------------|<-- Variable Header
+/// | Byte 6   |                Topic len MSB                     |
+/// | Byte 7   |                Topic len LSB                     |  [UINT16]
+/// |----------|--------------------------------------------------|
+/// | Byte 8   |                                                  |
+/// |   .      |                Topic name                        |
+/// | Byte N   |                                                  |
+/// |----------|--------------------------------------------------|
+/// | Byte N+1 |            Packet Identifier MSB                 |  [UINT16]
+/// | Byte N+2 |            Packet Identifier LSB                 |
+/// |----------|--------------------------------------------------|<-- Payload
+/// | Byte N+3 |                                                  |
+/// |   .      |                   Payload                        |
+/// | Byte N+M |                                                  |
+///
+///
 #[derive(Debug, PartialEq)]
 pub struct PublishPacket {
     pub packet_id: u16,
@@ -49,6 +77,8 @@ impl PublishPacket {
         } else {
             0
         };
+        // Message len is calculated subtracting the length of the variable header
+        // from the Remaining Length field that is in the Fixed Header
         let mut payload_bytes =
             vec![0u8; (fixed_header.remaining_length() - (bytes_read as u32)) as usize];
         buf.read_exact(&mut payload_bytes)?;

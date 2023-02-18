@@ -5,6 +5,7 @@ mod pubcomp;
 mod publish;
 mod pubrec;
 mod pubrel;
+mod subscribe;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use connack::ConnackPacket;
 use connect::ConnectPacket;
@@ -18,6 +19,7 @@ use std::error::Error;
 use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 use std::net::TcpStream;
+use subscribe::{SubscribePacket, SubscriptionTopic};
 
 /// Error during serialization and deserialization
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,7 +162,7 @@ pub enum PacketType {
     Pubrec,
     Pubrel,
     Pubcomp,
-    // Subscribe,
+    Subscribe,
     // Suback,
     // Unsubscribe,
     // Unsuback,
@@ -188,6 +190,7 @@ impl From<&PacketType> for u8 {
             PacketType::Pubrec => 0x05,
             PacketType::Pubrel => 0x06,
             PacketType::Pubcomp => 0x07,
+            PacketType::Subscribe => 0x08,
             PacketType::Disconnect => 0x0e,
             PacketType::Unknown => 0xFF,
         }
@@ -204,6 +207,7 @@ impl From<u8> for PacketType {
             0x5 => PacketType::Pubrec,
             0x6 => PacketType::Pubrel,
             0x7 => PacketType::Pubcomp,
+            0x8 => PacketType::Subscribe,
             0xE => PacketType::Disconnect,
             _ => PacketType::Unknown,
         }
@@ -211,6 +215,7 @@ impl From<u8> for PacketType {
 }
 
 #[repr(u8)]
+#[derive(Debug, Copy, Clone)]
 pub enum Qos {
     AtMostOnce,
     AtLeastOnce,
@@ -369,6 +374,10 @@ pub enum Request {
     Pubcomp {
         packet_id: u16,
     },
+    Subscribe {
+        packet_id: u16,
+        subscription_topics: Vec<SubscriptionTopic>,
+    },
     Disconnect,
 }
 
@@ -381,6 +390,7 @@ impl From<&Request> for u8 {
             Request::Pubrec { .. } => 0x50,
             Request::Pubrel { .. } => 0x62,
             Request::Pubcomp { .. } => 0x70,
+            Request::Subscribe { .. } => 0x80,
             Request::Disconnect => 0xE0,
         }
     }
@@ -452,6 +462,21 @@ impl Serialize for Request {
                     packet_id: *packet_id,
                 };
                 pubcomp.write(buf)?;
+            }
+            Request::Subscribe {
+                packet_id,
+                subscription_topics,
+            } => {
+                let len = 2 + subscription_topics
+                    .iter()
+                    .map(|s| 2 + s.topic.len())
+                    .sum::<usize>();
+                protocol::write_remaining_length(buf, len)?;
+                let subscribe = SubscribePacket {
+                    packet_id: *packet_id,
+                    subscription_topics: subscription_topics.to_vec(),
+                };
+                subscribe.write(buf)?;
             }
             Request::Disconnect => {
                 let len = 0;
