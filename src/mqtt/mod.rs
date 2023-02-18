@@ -217,6 +217,27 @@ pub enum Qos {
     ExactlyOnce,
 }
 
+impl From<u8> for Qos {
+    fn from(orig: u8) -> Self {
+        match orig {
+            0 => Qos::AtMostOnce,
+            1 => Qos::AtLeastOnce,
+            2 => Qos::ExactlyOnce,
+            n => panic!("Unknown QoS value: {}", n),
+        }
+    }
+}
+
+impl From<&Qos> for u8 {
+    fn from(orig: &Qos) -> Self {
+        match orig {
+            Qos::AtMostOnce => 0,
+            Qos::AtLeastOnce => 1,
+            Qos::ExactlyOnce => 2,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct FixedHeaderFlags {
     retain: bool,
@@ -355,7 +376,7 @@ impl From<&Request> for u8 {
     fn from(req: &Request) -> Self {
         match req {
             Request::Connect { .. } => 0x10,
-            Request::Publish { qos, .. } => encode_qos(0x30, *qos),
+            Request::Publish { qos, .. } => encode_qos(0x30, Qos::from(*qos)),
             Request::Puback { .. } => 0x40,
             Request::Pubrec { .. } => 0x50,
             Request::Pubrel { .. } => 0x62,
@@ -365,14 +386,13 @@ impl From<&Request> for u8 {
     }
 }
 
-fn encode_qos(byte: u8, qos: u8) -> u8 {
+fn encode_qos(byte: u8, qos: Qos) -> u8 {
     let mask1 = 1 << 1;
     let mask2 = 1 << 2;
     match qos {
-        0 => (byte & !mask1) & !mask2,
-        1 => (byte & !mask2) | mask1,
-        2 => (byte & !mask1) | mask2,
-        _ => byte,
+        Qos::AtMostOnce => (byte & !mask1) & !mask2,
+        Qos::AtLeastOnce => (byte & !mask2) | mask1,
+        Qos::ExactlyOnce => (byte & !mask1) | mask2,
     }
 }
 
