@@ -139,12 +139,12 @@ pub mod protocol {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid utf8"))
     }
 
-    /// Serializes bytes to stream (including length)
+    /// Serializes bytes to stream 
     pub fn write_bytes(buf: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
         buf.write_all(&bytes)
     }
 
-    /// Serializes a string to stream
+    /// Serializes a string to stream (including length)
     pub fn write_string(buf: &mut impl Write, string: &str) -> io::Result<()> {
         let message = string.as_bytes();
         buf.write_u16::<NetworkEndian>(message.len() as u16)?;
